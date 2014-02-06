@@ -16,7 +16,14 @@ Pop changes from channel, add to git list thing
 delay doohicky
 */
 type Config struct {
-	WatchDirs []string
+	WatchDirs []DirConfig
+}
+
+type DirConfig struct {
+	Base         string
+	SubDirs      []string
+	IncludeFiles []string
+	ExcludeFiles []string
 }
 
 const BUFFERLEN = 16
@@ -29,7 +36,10 @@ func main() {
 
 	decoder := json.NewDecoder(file)
 	config := &Config{}
-	decoder.Decode(&config)
+	err = decoder.Decode(&config)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	file.Close()
 
@@ -38,7 +48,7 @@ func main() {
 	watchers := make([]*fsnotify.Watcher, len(config.WatchDirs))
 
 	for i, dir := range config.WatchDirs {
-		log.Println("Created watcher on " + dir)
+		log.Println("Created watcher on " + dir.Base)
 		watcher, err := fsnotify.NewWatcher()
 		if err != nil {
 			log.Fatal(err)
@@ -51,24 +61,45 @@ func main() {
 			for {
 				select {
 				case ev := <-watcher.Event:
+
 					lowername := strings.ToLower(ev.Name)
-					if strings.Contains(lowername, ".git") == false && strings.Contains(lowername, ".tmp") == false {
-						toBeCommitted <- ev.Name
+					//Check if a file is in the excluded list
+					for _, exclude := range dir.ExcludeFiles {
+						if strings.HasPrefix(exclude, "*") {
+							exclude = strings.TrimPrefix(exclude, "*")
+							if strings.HasSuffix(lowername, exclude) {
+								log.Println(lowername + " was excluded due to rule: *" + exclude)
+								return
+							}
+						} else if exclude == lowername {
+								log.Println(lowername + " was excluded due to rule: " + exclude)
+							return
+						}
 					}
+
+					toBeCommitted <- ev.Name
+
 				case err := <-watcher.Error:
 					log.Println("error:", err)
 				}
 			}
 		}()
 
-		err = watcher.Watch(dir)
+		err = watcher.Watch(dir.Base)
 		if err != nil {
 			log.Fatal(err)
 		}
 
+		for _, subDir := range dir.SubDirs {
+			err = watcher.Watch(subDir)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+
 		watchers[i] = watcher
 
-		go CommitChanges(dir, toBeCommitted)
+		go CommitChanges(dir.Base, toBeCommitted)
 	}
 
 	<-done
@@ -98,6 +129,8 @@ func CommitChanges(path string, fileQueue chan (string)) {
 					log.Println(change)
 				}
 
+				changes.Msg = "Test!"
+
 				err := changes.Commit()
 				if err != nil {
 					log.Fatal(err)
@@ -108,5 +141,4 @@ func CommitChanges(path string, fileQueue chan (string)) {
 		}
 	}
 
-	
 }
