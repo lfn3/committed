@@ -116,29 +116,32 @@ func CommitChanges(path string, fileQueue chan (string)) {
 
 	var timer *time.Timer
 
-	select {
-	case fileName := <-fileQueue:
-		changes.Add(git.ChangedFile(fileName))
+	for {
+		select {
+		case fileName := <-fileQueue:
+			changes.Add(git.ChangedFile(fileName))
 
-		if timer == nil {
-			timer = time.AfterFunc(TIMERLEN, func() {
+			if timer == nil {
+				timer = time.AfterFunc(TIMERLEN, func() {
 
-				log.Println("Committing:")
+					log.Println("Committing:")
 
-				for _, change := range changes.Changes() {
-					log.Println(change)
-				}
+					for _, change := range changes.Changes() {
+						log.Println("\t" + change.Filepath())
+					}
 
-				changes.Msg = "Test!"
+					changes.Msg = "Updated"
 
-				err := changes.Commit()
-				if err != nil {
-					log.Fatal(err)
-				}
-			})
-		} else {
-			timer.Reset(TIMERLEN)
+					err := changes.Commit()
+					if err != nil {
+						log.Fatal(err)
+					}
+
+					changes = git.NewChangesIn(path)
+				})
+			} else {
+				timer.Reset(TIMERLEN)
+			}
 		}
 	}
-
 }
