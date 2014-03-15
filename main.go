@@ -11,10 +11,6 @@ import (
 	"github.com/howeyc/fsnotify"
 )
 
-/* TODO:
-Pop changes from channel, add to git list thing
-delay doohicky
-*/
 type Config struct {
 	WatchDirs []DirConfig
 }
