@@ -62,6 +62,8 @@ func main() {
 				select {
 				case ev := <-watcher.Event:
 
+					includeFile := true
+
 					lowername := strings.ToLower(ev.Name)
 					//Check if a file is in the excluded list
 					for _, exclude := range dir.ExcludeFiles {
@@ -69,15 +71,17 @@ func main() {
 							exclude = strings.TrimPrefix(exclude, "*")
 							if strings.HasSuffix(lowername, exclude) {
 								log.Println(lowername + " was excluded due to rule: *" + exclude)
-								return
+								includeFile = false
 							}
 						} else if exclude == lowername {
 								log.Println(lowername + " was excluded due to rule: " + exclude)
-							return
+							includeFile = false
 						}
 					}
 
-					toBeCommitted <- ev.Name
+					if (includeFile) {
+						toBeCommitted <- ev.Name
+					}
 
 				case err := <-watcher.Error:
 					log.Println("error:", err)
@@ -109,7 +113,7 @@ func main() {
 	}
 }
 
-const TIMERLEN = 500
+const TIMERLEN = time.Second * 5
 
 func CommitChanges(path string, fileQueue chan (string)) {
 	changes := git.NewChangesIn(path)
@@ -122,23 +126,28 @@ func CommitChanges(path string, fileQueue chan (string)) {
 			changes.Add(git.ChangedFile(fileName))
 
 			if timer == nil {
-				timer = time.AfterFunc(TIMERLEN, func() {
+				timer = time.NewTimer(TIMERLEN)
 
-					log.Println("Committing:")
+				go func() {
+					for {
+						<- timer.C
+						log.Println("Committing:")
 
-					for _, change := range changes.Changes() {
-						log.Println("\t" + change.Filepath())
+						for _, change := range changes.Changes() {
+							log.Println("\t" + change.Filepath())
+						}
+
+						changes.Msg = "Updated"
+
+						err := changes.Commit()
+						if err != nil {
+							log.Fatal(err)
+						}
+
+						changes = git.NewChangesIn(path)
 					}
+				}()
 
-					changes.Msg = "Updated"
-
-					err := changes.Commit()
-					if err != nil {
-						log.Fatal(err)
-					}
-
-					changes = git.NewChangesIn(path)
-				})
 			} else {
 				timer.Reset(TIMERLEN)
 			}
