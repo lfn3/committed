@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,12 +12,15 @@ import (
 	"github.com/howeyc/fsnotify"
 )
 
-/* TODO:
-Pop changes from channel, add to git list thing
-delay doohicky
-*/
 type Config struct {
-	WatchDirs []string
+	WatchDirs []DirConfig
+}
+
+type DirConfig struct {
+	Base         string
+	SubDirs      []string
+	IncludeFiles []string
+	ExcludeFiles []string
 }
 
 const BUFFERLEN = 16
@@ -29,7 +33,10 @@ func main() {
 
 	decoder := json.NewDecoder(file)
 	config := &Config{}
-	decoder.Decode(&config)
+	err = decoder.Decode(&config)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	file.Close()
 
@@ -38,7 +45,7 @@ func main() {
 	watchers := make([]*fsnotify.Watcher, len(config.WatchDirs))
 
 	for i, dir := range config.WatchDirs {
-		log.Println("Created watcher on " + dir)
+		log.Println("Created watcher on " + dir.Base)
 		watcher, err := fsnotify.NewWatcher()
 		if err != nil {
 			log.Fatal(err)
@@ -51,24 +58,36 @@ func main() {
 			for {
 				select {
 				case ev := <-watcher.Event:
-					lowername := strings.ToLower(ev.Name)
-					if strings.Contains(lowername, ".git") == false && strings.Contains(lowername, ".tmp") == false {
+
+					fileName := filepath.Base(ev.Name)
+					excluded := isExcluded(fileName, dir)
+
+					if excluded == false || (excluded && isIncluded(fileName, dir)) {
+						log.Println("Queuing commit for: " + ev.Name)
 						toBeCommitted <- ev.Name
 					}
+
 				case err := <-watcher.Error:
 					log.Println("error:", err)
 				}
 			}
 		}()
 
-		err = watcher.Watch(dir)
+		err = watcher.Watch(dir.Base)
 		if err != nil {
 			log.Fatal(err)
 		}
 
+		for _, subDir := range dir.SubDirs {
+			err = watcher.Watch(subDir)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+
 		watchers[i] = watcher
 
-		go CommitChanges(dir, toBeCommitted)
+		go CommitChanges(dir.Base, toBeCommitted)
 	}
 
 	<-done
@@ -78,7 +97,43 @@ func main() {
 	}
 }
 
-const TIMERLEN = 500
+func isExcluded(fileName string, currentDirectory DirConfig) bool {
+	lowername := strings.ToLower(fileName)
+
+	//Check if a file is in the excluded list, if it is then check if it's explictly included.
+	for _, exclude := range currentDirectory.ExcludeFiles {
+		exclude = strings.ToLower(exclude)
+		if strings.HasPrefix(exclude, "*") {
+			exclude = strings.TrimPrefix(exclude, "*")
+			if strings.HasSuffix(lowername, exclude) {
+				return true
+			}
+		} else if exclude == lowername {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isIncluded(fileName string, currentDirectory DirConfig) bool {
+	lowername := strings.ToLower(fileName)
+	for _, include := range currentDirectory.IncludeFiles {
+		include = strings.ToLower(include)
+		if strings.HasPrefix(include, "*") {
+			include = strings.TrimPrefix(include, "*")
+			if strings.HasSuffix(lowername, include) {
+				return true
+			}
+		} else if include == lowername {
+			return true
+		}
+	}
+
+	return false
+}
+
+const TIMERLEN = time.Second * 5
 
 func CommitChanges(path string, fileQueue chan (string)) {
 	changes := git.NewChangesIn(path)
@@ -91,24 +146,30 @@ func CommitChanges(path string, fileQueue chan (string)) {
 			changes.Add(git.ChangedFile(fileName))
 
 			if timer == nil {
-				timer = time.AfterFunc(TIMERLEN, func() {
+				timer = time.NewTimer(TIMERLEN)
 
-					log.Println("Committing:")
+				go func() {
+					for {
+						<-timer.C
+						log.Println("Committing:")
 
-					for _, change := range changes.Changes() {
-						log.Println("\t" + change.Filepath())
+						for _, change := range changes.Changes() {
+							log.Println("\t" + change.Filepath())
+						}
+
+						changes.Msg = "Updated"
+
+						err := changes.Commit()
+						if err != nil {
+							log.Fatal(err)
+						}
+
+						changes = git.NewChangesIn(path)
 					}
+				}()
 
-					changes.Msg = "Updated"
-
-					err := changes.Commit()
-					if err != nil {
-						log.Fatal(err)
-					}
-
-					changes = git.NewChangesIn(path)
-				})
 			} else {
+				log.Println("Additional changes. Delaying...")
 				timer.Reset(TIMERLEN)
 			}
 		}

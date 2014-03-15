@@ -1,5 +1,10 @@
 {
-	"Watchdirs": [
-		"C:\\Go\\path\\src\\github.com\\byatlas\\committed"
+	"WatchDirs": [
+		{
+			"Base": "C:\\Go\\path\\src\\github.com\\byatlas\\committedTest",
+			"SubDirs": [],
+			"IncludeFiles": [],
+			"ExcludeFiles": [".git", "*.tmp"]
+		}
 	]
 }
