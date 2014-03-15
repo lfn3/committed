@@ -68,16 +68,19 @@ func main() {
 						if strings.HasPrefix(exclude, "*") {
 							exclude = strings.TrimPrefix(exclude, "*")
 							if strings.HasSuffix(lowername, exclude) {
-								log.Println(lowername + " was excluded due to rule: *" + exclude)
+								log.Println(ev.Name + " was excluded due to rule: *" + exclude)
 								includeFile = false
+								break
 							}
 						} else if exclude == lowername {
-								log.Println(lowername + " was excluded due to rule: " + exclude)
+							log.Println(ev.Name + " was excluded due to rule: " + exclude)
 							includeFile = false
+							break
 						}
 					}
 
-					if (includeFile) {
+					if includeFile {
+						log.Println("Queuing commit for: " + ev.Name)
 						toBeCommitted <- ev.Name
 					}
 
@@ -147,6 +150,7 @@ func CommitChanges(path string, fileQueue chan (string)) {
 				}()
 
 			} else {
+				log.Println("Additional changes. Delaying...")
 				timer.Reset(TIMERLEN)
 			}
 		}
