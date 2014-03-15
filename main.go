@@ -62,20 +62,24 @@ func main() {
 					lowername := strings.ToLower(filepath.Base(ev.Name))
 					includeFile := true
 
-					//Check if a file is in the excluded list
+					//Check if a file is in the excluded list, if it is then check if it's explictly included.
 					for _, exclude := range dir.ExcludeFiles {
 						exclude = strings.ToLower(exclude)
 						if strings.HasPrefix(exclude, "*") {
 							exclude = strings.TrimPrefix(exclude, "*")
 							if strings.HasSuffix(lowername, exclude) {
-								log.Println(ev.Name + " was excluded due to rule: *" + exclude)
+								if (isIncluded(lowername, dir) == false){
+									log.Println(ev.Name + " was excluded due to rule: *" + exclude)
+									includeFile = false
+									break
+								}
+							}
+						} else if exclude == lowername {
+							if (isIncluded(lowername, dir) == false){
+								log.Println(ev.Name + " was excluded due to rule: " + exclude)
 								includeFile = false
 								break
 							}
-						} else if exclude == lowername {
-							log.Println(ev.Name + " was excluded due to rule: " + exclude)
-							includeFile = false
-							break
 						}
 					}
 
@@ -112,6 +116,23 @@ func main() {
 	for i := 0; i < len(watchers); i++ {
 		watchers[i].Close()
 	}
+}
+
+func isIncluded (fileName string, currentDirectory DirConfig) bool {
+	lowername := strings.ToLower(fileName)
+	for _, include := range currentDirectory.IncludeFiles {
+		include = strings.ToLower(include)
+		if strings.HasPrefix(include, "*") {
+			include = strings.TrimPrefix(include, "*")
+			if strings.HasSuffix(lowername, include) {
+				return true
+			}
+		} else if include == lowername {
+			return true
+		}
+	}
+
+	return false
 }
 
 const TIMERLEN = time.Second * 5
