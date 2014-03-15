@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
-	"path/filepath"
 
 	"github.com/ghthor/journal/git"
 	"github.com/howeyc/fsnotify"
@@ -59,31 +59,10 @@ func main() {
 				select {
 				case ev := <-watcher.Event:
 
-					lowername := strings.ToLower(filepath.Base(ev.Name))
-					includeFile := true
+					fileName := filepath.Base(ev.Name)
+					excluded := isExcluded(fileName, dir)
 
-					//Check if a file is in the excluded list, if it is then check if it's explictly included.
-					for _, exclude := range dir.ExcludeFiles {
-						exclude = strings.ToLower(exclude)
-						if strings.HasPrefix(exclude, "*") {
-							exclude = strings.TrimPrefix(exclude, "*")
-							if strings.HasSuffix(lowername, exclude) {
-								if (isIncluded(lowername, dir) == false){
-									log.Println(ev.Name + " was excluded due to rule: *" + exclude)
-									includeFile = false
-									break
-								}
-							}
-						} else if exclude == lowername {
-							if (isIncluded(lowername, dir) == false){
-								log.Println(ev.Name + " was excluded due to rule: " + exclude)
-								includeFile = false
-								break
-							}
-						}
-					}
-
-					if includeFile {
+					if excluded == false || (excluded && isIncluded(fileName, dir)) {
 						log.Println("Queuing commit for: " + ev.Name)
 						toBeCommitted <- ev.Name
 					}
@@ -118,7 +97,26 @@ func main() {
 	}
 }
 
-func isIncluded (fileName string, currentDirectory DirConfig) bool {
+func isExcluded(fileName string, currentDirectory DirConfig) bool {
+	lowername := strings.ToLower(fileName)
+
+	//Check if a file is in the excluded list, if it is then check if it's explictly included.
+	for _, exclude := range currentDirectory.ExcludeFiles {
+		exclude = strings.ToLower(exclude)
+		if strings.HasPrefix(exclude, "*") {
+			exclude = strings.TrimPrefix(exclude, "*")
+			if strings.HasSuffix(lowername, exclude) {
+				return true
+			}
+		} else if exclude == lowername {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isIncluded(fileName string, currentDirectory DirConfig) bool {
 	lowername := strings.ToLower(fileName)
 	for _, include := range currentDirectory.IncludeFiles {
 		include = strings.ToLower(include)
@@ -152,7 +150,7 @@ func CommitChanges(path string, fileQueue chan (string)) {
 
 				go func() {
 					for {
-						<- timer.C
+						<-timer.C
 						log.Println("Committing:")
 
 						for _, change := range changes.Changes() {
