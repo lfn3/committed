@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"path/filepath"
 
 	"github.com/ghthor/journal/git"
 	"github.com/howeyc/fsnotify"
@@ -58,11 +59,12 @@ func main() {
 				select {
 				case ev := <-watcher.Event:
 
+					lowername := strings.ToLower(filepath.Base(ev.Name))
 					includeFile := true
 
-					lowername := strings.ToLower(ev.Name)
 					//Check if a file is in the excluded list
 					for _, exclude := range dir.ExcludeFiles {
+						exclude = strings.ToLower(exclude)
 						if strings.HasPrefix(exclude, "*") {
 							exclude = strings.TrimPrefix(exclude, "*")
 							if strings.HasSuffix(lowername, exclude) {
